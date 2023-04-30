@@ -1,0 +1,1012 @@
+---
+title: "Appendix 1.1"
+author: "Salman Saleem Virani"
+date: "2023-03-20"
+output:
+  pdf_document:
+    toc: yes
+  html_document:
+    toc: yes
+    toc_float: yes
+    number_sections: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+
+This work will try to compare the sentiment scores of Vader and Textblob on 
+Sentiment140 tweets data set and US Airlines Tweets data set. First, we will try
+to test for any statistical significance in the scoring of these two popular 
+sentiment analysis technique.
+
+# Libraries and Seed Setting
+
+Some important packages that will be used in the analysis are:
+1. 'readr' that will be used for reading and writing the csv files they we will 
+be working on in this project.
+2. 'dplyr' which is one the most popular packages of the tidy verse framework 
+will be used for data wrangling tasks.
+3. 'textclean', 'tidytext' and 'stringr' will be used for text manipulation 
+work.
+4. 'caret' will be used for machine learning and extracting model measurement 
+works.
+5. 'purrr' will be used specifically for the map_dbl function which will apply 
+the word count function over clean_tweet column of the data set. 
+6. 'broom' will be used for cleaning the results of the models and bringing it 
+in a presentable manner.
+
+```{r, cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+library(readr)
+library(dplyr)
+library(textclean)
+library(tidytext)
+library(stringr)
+library(caret)
+library(purrr)
+library(broom)
+library(ggplot2)
+library(tm)
+library(wordcloud)
+library(topicmodels)
+
+set.seed(12345)
+```
+
+# Data
+
+## Sentiment140
+
+Sentiment140 data will be directly downloaded from the web and necessary 
+adjustments will be made before the data is ready to use.
+
+```{r, cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+file_path1 <- "./data/training.zip"
+
+if(!file.exists(file_path1)){
+  dir.create("./data")
+  url <- "http://cs.stanford.edu/people/alecmgo/trainingandtestdata.zip"
+  download.file(url, file_path1)
+}
+
+data_sentiment140 <- read_csv(unz("data/training.zip",
+                                  "training.1600000.processed.noemoticon.csv"),
+                              col_names= F,
+                              locale = locale(encoding = "Latin1"))
+
+data_sentiment140 <- data_sentiment140 %>%
+  select(X1,X6)
+
+colnames(data_sentiment140) <- c("target", "tweet")
+
+head(data_sentiment140)
+```
+
+## US Airlines Data
+
+Data set will be loaded from the project repository. 
+
+```{r,cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+data_usairline <- read_csv("data/Tweets.csv", locale = locale(encoding = 
+                                                                "UTF-8"))
+
+
+data_usairline <- data_usairline %>%
+  select(airline_sentiment, text)
+```
+
+## Apple Twitter Sentiment Dataset
+
+```{r,cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+data_apple <- read_csv("data/apple.csv", locale = locale(encoding = "Latin1"))
+
+data_apple <- data_apple %>%
+  select(sentiment, text) %>%
+  filter(sentiment != "not_relevant")
+```
+
+# Text Preprocessing and Sentiment Scoring
+
+Text Pre processing steps are explained in the Research Methodology section of 
+the paper. 
+
+```{r,cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+text_cleaning <- function(x) {
+  x %>%
+    replace_non_ascii() %>%
+    str_replace_all(pattern = "\\@.*? |\\@.*?[:punct:]", replacement = " ") %>%
+    replace_url() %>%
+    replace_hash() %>%
+    replace_contraction() %>%
+    str_replace_all("[:digit:]", " ") %>%
+    str_trim() %>% 
+    str_squish() 
+}
+```
+
+```{r,cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+data_sentiment140 <- data_sentiment140 %>%
+  mutate(
+    clean_tweet = text_cleaning(tweet)
+  )
+```
+
+```{r,cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+data_usairline <- data_usairline %>%
+  mutate(
+    clean_tweet = text_cleaning(text)
+  )
+```
+
+```{r,cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+data_apple <- data_apple %>%
+  mutate(
+    clean_tweet = text_cleaning(text)
+  )
+```
+
+
+After cleaning the tweets, the rows of the data where the clean_tweet column had
+less than three words were removed. 
+
+```{r,cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+word_count_sentiment140 <- map_dbl(data_sentiment140$clean_tweet, 
+                      function(x) str_split(x, " ") %>% 
+                        unlist() %>% 
+                        length()
+                      )
+```
+
+```{r,cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+word_count_usairline <- map_dbl(data_usairline$clean_tweet, 
+                      function(x) str_split(x, " ") %>% 
+                        unlist() %>% 
+                        length()
+                      )
+```
+
+```{r,cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+word_count_apple <- map_dbl(data_apple$clean_tweet, 
+                      function(x) str_split(x, " ") %>% 
+                        unlist() %>% 
+                        length()
+                      )
+```
+
+```{r,cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+data_sentiment140 <- data_sentiment140 %>%
+  filter(word_count_sentiment140 > 3)
+```
+
+```{r,cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+data_usairline <- data_usairline %>%
+  filter(word_count_usairline > 3)
+```
+
+```{r,cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+data_apple <- data_apple %>%
+  filter(word_count_apple > 3)
+```
+
+## Distribution of Sentiment Categories in the Sentiment140 Dataset
+
+```{r,cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+table(data_sentiment140$target)
+prop.table(table(data_sentiment140$target))
+```
+
+```{r,cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+data_sentiment140$target <- as.factor(data_sentiment140$target)
+ggplot(data_sentiment140, aes(target, fill = target)) +
+  geom_bar() +
+  labs(
+    x = "Sentiment Classes: 0 = Negative, 4 = Positive",
+    y = "Frequency",
+    title = "Distribution of Sentiment Classes After Text Processing",
+    subtitle = "Sentiment140 Data set",
+  ) +
+  theme_classic() +
+  theme(legend.position="none")
+```
+
+## Distribution of Sentiment Categories in the US Airline Dataset Dataset
+
+```{r,cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+table(data_usairline$airline_sentiment)
+prop.table(table(data_usairline$airline_sentiment))
+```
+
+```{r,cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+ggplot(data_usairline, aes(airline_sentiment, fill = airline_sentiment)) +
+  geom_bar() +
+  labs(
+    x = "Sentiment Classes",
+    y = "Frequency",
+    title = "Distribution of Sentiment Classes After Text Processing",
+    subtitle = "US Airlines Tweet Data set",
+  ) +
+  theme_classic() +
+  theme(legend.position="none")
+```
+
+## Distribution of Sentiment Categories in the Apple Dataset
+
+```{r,cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+table(data_apple$sentiment)
+prop.table(table(data_apple$sentiment))
+```
+
+```{r,cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+ggplot(data_apple, aes(sentiment, fill = sentiment)) +
+  geom_bar() +
+  labs(
+    x = "Sentiment Classes: 1 = Negative, 3= Neutral, 5 = Positive",
+    y = "Frequency",
+    title = "Distribution of Sentiment Classes After Text Processing",
+    subtitle = "Apple Tweet Data set",
+  ) +
+  theme_classic() +
+  theme(legend.position="none")
+```
+
+```{r,cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+rm(word_count_sentiment140)
+rm(word_count_usairline)
+rm(word_count_apple)
+```
+
+## Exporting the cleaned text data
+
+After the text cleaning task is completed, data are exported as .csv files and 
+the files are loaded in Python for sentiment scoring through TEXTBLOB and VADER techniques. 
+
+```{r,cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+write_csv(data_sentiment140, "data/sentiment140_clean_tweet.csv")
+write_csv(data_usairline, "data/usairline_clean_tweet.csv")
+```
+
+```{r,cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+write_csv(data_apple, "data/apple_clean_tweet.csv")
+```
+
+## Importing data with Vader and Textblob Scores
+
+The dataset with the sentiment scores are then loaded back into R. 
+
+```{r,cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+data_final_sentiment140 <- read_csv("data/sentiment140_scores.csv",
+                                    locale = locale(encoding = "Latin1"))
+
+data_final_usairline <- read_csv("data/usairline_scores.csv",
+                                 locale = locale(encoding = "Latin1"))
+```
+
+```{r,cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+data_final_apple <- read_csv("data/apple_scores.csv",
+                             locale = locale(encoding = "Latin1"))
+```
+
+```{r,cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+summary(data_final_sentiment140$textblob)
+```
+
+```{r,cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+summary(data_final_sentiment140$vader)
+```
+
+```{r,cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+summary(data_final_usairline$textblob)
+```
+
+```{r,cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+summary(data_final_usairline$vader)
+```
+
+```{r,cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+summary(data_final_apple$textblob)
+```
+
+```{r,cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+summary(data_final_apple$vader)
+```
+
+```{r,cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+rm(data_sentiment140)
+rm(data_usairline)
+```
+
+# Statistical Testing
+
+## Analysis of Distribution of Differences in Sentiment Scoring by Textblob 
+and Vader
+
+### Sentiment140 dataset
+
+```{r,cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+data_final_sentiment140 <- data_final_sentiment140 %>%
+  mutate(
+    diff = textblob - vader
+  )
+
+ggplot(data_final_sentiment140,aes(diff)) +
+  geom_histogram(fill = "#33ccff") +
+  labs(y = "Frequency",
+       x = "Difference Between Textblob and Vader Sentiment Scoring",
+      title = "Distribution of Diffence in Textblob and Vader Scoring",
+      subtitle = "Sentiment140 Dataset") +
+  theme_classic()
+```
+
+### US Airline Data set
+
+```{r,cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+data_final_usairline <- data_final_usairline %>%
+  mutate(
+    diff = textblob - vader
+  )
+
+ggplot(data_final_usairline,aes(diff)) +
+  geom_histogram(fill = "#33ccff") +
+  labs(y = "Frequency",
+       x = "Difference Between Textblob and Vader Sentiment Scoring",
+      title = "Distribution of Diffence in Textblob and Vader Scoring",
+      subtitle = "US Airline Dataset") +
+  theme_classic()
+```
+
+### Apple Tweets Data set
+
+```{r,cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+data_final_apple <- data_final_apple %>%
+  mutate(
+    diff = textblob - vader
+  )
+
+ggplot(data_final_apple,aes(diff)) +
+  geom_histogram(fill = "#33ccff") +
+  labs(y = "Frequency",
+       x = "Difference Between Textblob and Vader Sentiment Scoring",
+      title = "Distribution of Diffence in Textblob and Vader Scoring",
+      subtitle = "Apple Tweets Dataset") +
+  theme_classic()
+```
+
+## Testing for any Statistical difference
+
+### Sentiment140 Dataset
+```{r,cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+tidy(t.test(data_final_sentiment140$textblob, data_final_sentiment140$vader, 
+            paired = T, alternative = "two.sided"))
+```
+
+### US Airline Dataset
+
+```{r,cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+tidy(t.test(data_final_usairline$textblob, data_final_usairline$vader, 
+            paired = T, alternative = "two.sided"))
+```
+
+### Apple Tweets Dataset
+
+```{r,cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+tidy(t.test(data_final_apple$textblob, data_final_apple$vader, paired = T, 
+            alternative = "two.sided"))
+```
+
+# Tweets classification based on Sentiment Scores and Accuracy Measures
+
+## Sentiment140 Data set
+
+```{r,cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+data_final_sentiment140 <- data_final_sentiment140 %>%
+  mutate(
+    senti140_class = case_when(
+      target == 0 ~ "negative",
+      target == 4 ~ "positive" 
+    ),
+    textblob_class = case_when(
+      textblob >= 0 ~ "positive",
+      textblob < 0 ~ "negative"
+    ),
+    vader_class = case_when(
+      vader >= 0 ~ "positive",
+      vader < 0 ~ "negative"
+  )
+  )
+```
+
+```{r,cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+textblob_table <- table(sentiment140 = data_final_sentiment140$senti140_class, 
+                        textblob = data_final_sentiment140$textblob_class)
+
+(conf_mat_textblob <- confusionMatrix(textblob_table))
+plot(textblob_table, color = "#33ccff")
+```
+
+```{r,cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+textblob_sent140_results <- rbind(as.matrix(confusionMatrix(textblob_table),
+                                            what = "overall"),
+                                  as.matrix(confusionMatrix(textblob_table),
+                                            what = "classes"))
+
+Measurements <- rownames(textblob_sent140_results)
+Textblob <- textblob_sent140_results[1:18]
+
+textblob_sent140_results_df <- data.frame(Measurements,Textblob)
+str(textblob_sent140_results_df)
+```
+
+```{r,cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+vader_table <- table(sentiment140 = data_final_sentiment140$senti140_class, 
+                     vader = data_final_sentiment140$vader_class)
+
+(conf_mat_vader <- confusionMatrix(vader_table))
+plot(vader_table, color = "#33ccff")
+```
+
+```{r,cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+vader_sent140_results <- rbind(as.matrix(confusionMatrix(vader_table),
+                                         what = "overall"),
+                               as.matrix(confusionMatrix(vader_table), 
+                                         what = "classes"))
+
+vader_sent140_results_df <- data.frame(vader_sent140_results[1:18])
+colnames(vader_sent140_results_df) <- "Vader"
+str(vader_sent140_results_df)
+```
+
+```{r,cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+results_sent140 <- cbind(textblob_sent140_results_df, vader_sent140_results_df)
+results_sent140
+```
+
+```{r,cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+rm(conf_mat_textblob)
+rm(conf_mat_vader)
+rm(textblob_sent140_results)
+rm(textblob_sent140_results_df)
+rm(vader_sent140_results)
+rm(vader_sent140_results_df)
+rm(Measurements)
+rm(Textblob)
+rm(textblob_table)
+rm(vader_table)
+```
+
+## US Airlines Dataset
+
+```{r,cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+data_final_usairline <- data_final_usairline %>%
+  mutate(
+    textblob_class = case_when(
+      textblob > 0.05 ~ "positive",
+      textblob < -0.05 ~ "negative",
+      textblob >= -0.05 & textblob <= 0.05 ~ "neutral"
+    ),
+    vader_class = case_when(
+      vader > 0.05 ~ "positive",
+      vader < -0.05 ~ "negative",
+      vader >= -0.05 & vader <= 0.05 ~ "neutral"
+  )
+  )
+```
+
+```{r,cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+textblob_table <- table(airline_sentiment =
+                          data_final_usairline$airline_sentiment,
+                        textblob = data_final_usairline$textblob_class)
+
+(conf_mat_textblob <- confusionMatrix(textblob_table))
+plot(textblob_table, color = "#33ccff")
+```
+
+```{r,cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+vader_table <- table(airline_sentiment = data_final_usairline$airline_sentiment,
+                     vader = data_final_usairline$vader_class)
+
+(conf_mat_vader <- confusionMatrix(vader_table))
+plot(vader_table, color = "#33ccff")
+```
+
+```{r,cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+textblob_usairline_overall <- as.matrix(conf_mat_textblob, what = "overall")
+Measurements <- rownames(textblob_usairline_overall)
+Textblob <- textblob_usairline_overall[1:7]
+vader_usairline_overall <- as.matrix(conf_mat_vader, what = "overall")
+Vader <-  vader_usairline_overall[1:7]
+
+usairline_overall_df <- data.frame(cbind(Measurements, Textblob, Vader))
+usairline_overall_df
+```
+
+```{r,cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+textblob_usairline_byclass <- as.matrix(conf_mat_textblob, what = "classes")
+Measurements <- data.frame(rownames(textblob_usairline_byclass))
+colnames(Measurements) <- "Measurements"
+negative <- data.frame(textblob_usairline_byclass[1:11])
+colnames(negative) <- "Negative"
+neutral <- data.frame(textblob_usairline_byclass[12:22])
+colnames(neutral) <- "Neutral"
+positive <- data.frame(textblob_usairline_byclass[23:33])
+colnames(positive) <- "Positive"
+
+textblob_usairline_byclass_df <- cbind(Measurements,negative,neutral,positive)
+textblob_usairline_byclass_df
+```
+
+```{r,cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+vader_usairline_byclass <- as.matrix(conf_mat_vader, what = "classes")
+Measurements <- data.frame(rownames(vader_usairline_byclass))
+colnames(Measurements) <- "Measurements"
+Classes <- colnames(vader_usairline_byclass)
+negative <- data.frame(vader_usairline_byclass[1:11])
+colnames(negative) <- "Negative"
+neutral <- data.frame(vader_usairline_byclass[12:22])
+colnames(neutral) <- "Neutral"
+positive <- data.frame(vader_usairline_byclass[23:33])
+colnames(positive) <- "Positive"
+
+vader_usairline_byclass_df <- cbind(Measurements,negative,neutral,positive)
+vader_usairline_byclass_df
+```
+
+```{r,cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+rm(conf_mat_textblob)
+rm(conf_mat_vader)
+rm(Measurements)
+rm(negative)
+rm(neutral)
+rm(positive)
+rm(textblob_usairline_byclass)
+rm(textblob_usairline_overall)
+rm(vader_usairline_byclass)
+rm(vader_usairline_overall)
+rm(Classes)
+rm(Textblob)
+rm(textblob_table)
+rm(Vader)
+rm(vader_table)
+```
+
+## Apple Tweets Dataset
+
+```{r,cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+data_final_apple <- data_final_apple %>%
+  mutate(
+    apple_class = case_when(
+      sentiment == 1 ~ "negative",
+      sentiment == 3 ~ "neutral",
+      sentiment == 5 ~ "positive"
+    ),
+    textblob_class = case_when(
+      textblob > 0.05 ~ "positive",
+      textblob < -0.05 ~ "negative",
+      textblob >= -0.05 & textblob <= 0.05 ~ "neutral"
+    ),
+    vader_class = case_when(
+      vader > 0.05 ~ "positive",
+      vader < -0.05 ~ "negative",
+      vader >= -0.05 & vader <= 0.05 ~ "neutral"
+  )
+  )
+```
+
+```{r,cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+textblob_table <- table(apple_sentiment = data_final_apple$apple_class, 
+                        textblob = data_final_apple$textblob_class)
+
+(conf_mat_textblob <- confusionMatrix(textblob_table))
+plot(textblob_table, color = "#33ccff")
+```
+
+```{r,cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+vader_table <- table(apple_sentiment = 
+                       data_final_apple$apple_class,
+                     vader = data_final_apple$vader_class)
+
+(conf_mat_vader <- confusionMatrix(vader_table))
+plot(vader_table, color = "#33ccff")
+```
+
+```{r,cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+textblob_apple_overall <- as.matrix(conf_mat_textblob, what = "overall")
+Measurements <- rownames(textblob_apple_overall)
+Textblob <- textblob_apple_overall[1:7]
+vader_apple_overall <- as.matrix(conf_mat_vader, what = "overall")
+Vader <-  vader_apple_overall[1:7]
+
+apple_overall_df <- data.frame(cbind(Measurements, Textblob, Vader))
+apple_overall_df
+```
+
+```{r,cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+textblob_apple_byclass <- as.matrix(conf_mat_textblob, what = "classes")
+Measurements <- data.frame(rownames(textblob_apple_byclass))
+colnames(Measurements) <- "Measurements"
+negative <- data.frame(textblob_apple_byclass[1:11])
+colnames(negative) <- "Negative"
+neutral <- data.frame(textblob_apple_byclass[12:22])
+colnames(neutral) <- "Neutral"
+positive <- data.frame(textblob_apple_byclass[23:33])
+colnames(positive) <- "Positive"
+
+textblob_apple_byclass_df <- cbind(Measurements,negative,neutral,positive)
+textblob_apple_byclass_df
+```
+
+```{r,cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+vader_apple_byclass <- as.matrix(conf_mat_vader, what = "classes")
+Measurements <- data.frame(rownames(vader_apple_byclass))
+colnames(Measurements) <- "Measurements"
+Classes <- colnames(vader_apple_byclass)
+negative <- data.frame(vader_apple_byclass[1:11])
+colnames(negative) <- "Negative"
+neutral <- data.frame(vader_apple_byclass[12:22])
+colnames(neutral) <- "Neutral"
+positive <- data.frame(vader_apple_byclass[23:33])
+colnames(positive) <- "Positive"
+
+vader_apple_byclass_df <- cbind(Measurements,negative,neutral,positive)
+vader_apple_byclass_df
+```
+
+```{r,cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+rm(conf_mat_textblob)
+rm(conf_mat_vader)
+rm(Measurements)
+rm(negative)
+rm(neutral)
+rm(positive)
+rm(textblob_apple_byclass)
+rm(textblob_apple_overall)
+rm(vader_apple_byclass)
+rm(vader_apple_overall)
+rm(Classes)
+rm(Textblob)
+rm(textblob_table)
+rm(Vader)
+rm(vader_table)
+```
+
+# Exporting the Results as CSV files
+
+```{r,cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+write_csv(results_sent140, "data/sentiment140_classification_results.csv")
+write_csv(usairline_overall_df, "data/usairline_overall_results.csv")
+write_csv(textblob_usairline_byclass_df, "data/usairline_textblob_results.csv")
+write_csv(vader_usairline_byclass_df, "data/usairline_vader_results.csv")
+
+write_csv(apple_overall_df, "data/apple_overall_results.csv")
+write_csv(textblob_apple_byclass_df, "data/apple_textblob_results.csv")
+write_csv(vader_apple_byclass_df, "data/apple_vader_results.csv")
+```
+
+# Climate Change Sentiment Analysis anf Topic Modelling
+
+```{r, cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+climate <- read_csv("climate.csv")
+
+climate <- climate %>%
+  select(Embedded_text, Timestamp)
+
+text_cleaning <- function(x) {
+  x %>%
+    replace_non_ascii() %>%
+    str_replace_all(pattern = "\\@.*? |\\@.*?[:punct:]", replacement = " ") %>%
+    replace_url() %>%
+    replace_hash() %>%
+    replace_contraction() %>%
+    str_replace_all("[:digit:]", " ") %>%
+    str_trim() %>% 
+    str_squish() 
+}
+
+climate <- climate %>%
+  mutate(clean_tweet = text_cleaning(Embedded_text))
+
+word_count_climate <- map_dbl(climate$clean_tweet, 
+                              function(x) str_split(x, " ") %>% 
+                                unlist() %>% 
+                                length()
+)
+
+climate <- climate %>%
+  filter(word_count_climate > 3)
+
+climate <- climate %>%
+  select(clean_tweet, Timestamp)
+
+write_csv(climate, "data/climate_clean_tweet.csv")
+
+climate <- read_csv("data/climate_vader_scores.csv")
+
+climate <- climate %>%
+  mutate(
+    sentiment = case_when(
+      vader > 0.05 ~ "positive",
+      vader < -0.05 ~ "negative",
+      vader >= -0.05 & vader <= 0.05 ~ "neutral"
+    )
+  )
+```
+
+```{r, cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+table(climate$sentiment)
+
+prop.table(table(climate$sentiment))
+```
+```{r, cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+
+climate$sentiment <- as.factor(climate$sentiment)
+ggplot(climate, aes(sentiment, fill = sentiment)) +
+  geom_bar() +
+  labs(
+    x = "Sentiment Classes",
+    y = "Frequency",
+    title = "Distribution of Sentiments after Vader's Classification",
+    subtitle = "Climate Data set",
+  ) +
+  theme_classic() +
+  theme(legend.position="none")
+```
+
+```{r, cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+# Overall Dataset
+
+tweets_corpus <- Corpus(VectorSource(climate$clean_tweet))
+tweets_corpus <- tm_map(tweets_corpus, content_transformer(tolower))
+tweets_corpus <- tm_map(tweets_corpus, removeNumbers)
+tweets_corpus <- tm_map(tweets_corpus, removePunctuation, preserve_intra_word_dashes = T)
+tweets_corpus <- tm_map(tweets_corpus, removeWords, stopwords("english"))
+tweets_corpus <- tm_map(tweets_corpus, stripWhitespace)
+
+tdm <- TermDocumentMatrix(tweets_corpus)
+freq <- sort(rowSums(as.matrix(tdm)), decreasing = TRUE)
+freq <- freq[!names(freq) %in% c("climate", "change", "replying", "tweet",
+                                 "will", "can", "one", "quote")]
+
+png("graph/wordcloud_overall.png", width = 700, height = 700, res = 72)
+
+wordcloud(words = names(freq), freq = freq, scale = c(5, 0.5), 
+          min.freq = 1, max.words = 200, random.order = FALSE, 
+          rot.per = 0.35, colors = brewer.pal(8, "Dark2"))
+
+dev.off()
+
+top_words_overall <- head(names(freq), 10)
+top_words_overall
+
+# Positive Sentiments
+
+positive <- climate %>%
+  filter(sentiment == "positive")
+
+tweets_corpus <- Corpus(VectorSource(positive$clean_tweet))
+tweets_corpus <- tm_map(tweets_corpus, content_transformer(tolower))
+tweets_corpus <- tm_map(tweets_corpus, removePunctuation)
+tweets_corpus <- tm_map(tweets_corpus, removeWords, stopwords("english"))
+
+tdm <- TermDocumentMatrix(tweets_corpus)
+freq <- sort(rowSums(as.matrix(tdm)), decreasing = TRUE)
+freq <- freq[!names(freq) %in% c("climate", "change","replying", "tweet",
+                                 "will", "can", "one", "quote")]
+
+png("graph/wordcloud_positive.png", width = 700, height = 700, res = 72)
+
+wordcloud(words = names(freq), freq = freq, scale = c(5, 0.5), 
+          min.freq = 1, max.words = 200, random.order = FALSE, 
+          rot.per = 0.35, colors = brewer.pal(8, "Dark2"))
+
+dev.off()
+
+top_words_positive <- head(names(freq), 10)
+top_words_positive
+
+# Negative Sentiments
+
+negative <- climate %>%
+  filter(sentiment == "negative")
+
+tweets_corpus <- Corpus(VectorSource(negative$clean_tweet))
+tweets_corpus <- tm_map(tweets_corpus, content_transformer(tolower))
+tweets_corpus <- tm_map(tweets_corpus, removePunctuation)
+tweets_corpus <- tm_map(tweets_corpus, removeWords, stopwords("english"))
+
+tdm <- TermDocumentMatrix(tweets_corpus)
+freq <- sort(rowSums(as.matrix(tdm)), decreasing = TRUE)
+freq <- freq[!names(freq) %in% c("climate", "change", "replying", "tweet",
+                                 "will", "can", "one", "quote")]
+
+png("graph/wordcloud_negative.png", width = 700, height = 700, res = 72)
+
+wordcloud(words = names(freq), freq = freq, scale = c(5, 0.5), 
+          min.freq = 1, max.words = 200, random.order = FALSE, 
+          rot.per = 0.35, colors = brewer.pal(8, "Dark2"))
+
+dev.off()
+
+top_words_negative <- head(names(freq), 10)
+top_words_negative
+
+# Neutral Sentiments
+
+neutral <- climate %>%
+  filter(sentiment == "neutral")
+
+tweets_corpus <- Corpus(VectorSource(neutral$clean_tweet))
+tweets_corpus <- tm_map(tweets_corpus, content_transformer(tolower))
+tweets_corpus <- tm_map(tweets_corpus, removePunctuation)
+tweets_corpus <- tm_map(tweets_corpus, removeWords, stopwords("english"))
+
+tdm <- TermDocumentMatrix(tweets_corpus)
+freq <- sort(rowSums(as.matrix(tdm)), decreasing = TRUE)
+freq <- freq[!names(freq) %in% c("climate", "change", "replying", "tweet",
+                                 "will", "can", "one", "quote")]
+
+png("graph/wordcloud_neutral.png", width = 700, height = 700, res = 72)
+
+wordcloud(words = names(freq), freq = freq, scale = c(5, 0.5), 
+          min.freq = 1, max.words = 200, random.order = FALSE, 
+          rot.per = 0.35, colors = brewer.pal(8, "Dark2"))
+
+dev.off()
+
+top_words_neutral <- head(names(freq), 10)
+top_words_neutral
+```
+
+```{r, cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+bad_words <- c("climate", "change", "replying", "tweet", "will", "can",
+               "quote", "one")
+
+text_cleaning <- function(x) {
+  x %>%
+    str_to_lower() %>%
+    replace_non_ascii() %>%
+    str_replace_all(pattern = "\\@.*? |\\@.*?[:punct:]", replacement = " ") %>%
+    replace_url() %>%
+    replace_hash() %>%
+    replace_contraction() %>%
+    str_replace_all("[:digit:]", " ") %>%
+    str_replace_all(paste(bad_words, collapse = "|"), " ") %>%
+    str_trim() %>% 
+    str_squish() 
+}
+
+climate <- climate %>%
+  mutate(
+    clean_tweet = text_cleaning(clean_tweet)
+  )
+
+word_count_climate <- map_dbl(climate$clean_tweet, 
+                              function(x) str_split(x, " ") %>% 
+                                unlist() %>% 
+                                length()
+)
+
+climate <- climate %>%
+  filter(word_count_climate > 10)
+
+tweets_corpus <- Corpus(VectorSource(climate$clean_tweet))
+tweets_corpus <- tm_map(tweets_corpus, content_transformer(tolower))
+tweets_corpus <- tm_map(tweets_corpus, removeNumbers)
+tweets_corpus <- tm_map(tweets_corpus, removePunctuation, 
+                        preserve_intra_word_dashes = T)
+tweets_corpus <- tm_map(tweets_corpus, removeWords, stopwords("english"))
+tweets_corpus <- tm_map(tweets_corpus, stripWhitespace)
+
+dtm <- DocumentTermMatrix(tweets_corpus)
+
+
+model_lda <- LDA(dtm, k = 5, control = list(seed = 1234))
+model_lda
+```
+
+```{r, cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+beta_topics <- tidy(model_lda, matrix = "beta")
+beta_topics
+```
+
+```{r, cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+beta_top_terms <- beta_topics %>%
+  group_by(topic) %>%
+  slice_max(beta, n = 10) %>%
+  ungroup() %>%
+  arrange(topic, -beta)
+
+beta_top_terms %>%
+  mutate(term = reorder_within(term, beta, topic)) %>%
+  ggplot(aes(beta, term, fill = factor(topic))) +
+  geom_col(show.legend = F) +
+  facet_wrap(~ topic, scales = "free") +
+  scale_y_reordered()
+```
+
+```{r, cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+topic_probs <- tidy(model_lda, matrix = "gamma")
+
+df_max_gamma <- topic_probs %>% 
+  group_by(document) %>% 
+  slice(which.max(gamma))
+df_max_gamma$document <- as.numeric(df_max_gamma$document)
+
+climate <- climate %>%
+  mutate(document = row_number())
+
+climate <- climate %>%
+  left_join(df_max_gamma, by = "document")
+
+climate <- climate %>%
+  select(document, clean_tweet, topic, vader, Timestamp, sentiment)
+
+ggplot(climate, aes(sentiment, fill = sentiment)) +
+  geom_bar() +
+  facet_wrap(~topic, scales = "free")
+```
+
+```{r, cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+sentiment_by_topic <- climate %>%
+  group_by(topic, sentiment) %>%
+  summarize(count = n()) %>%
+  group_by(topic) %>%
+  mutate(prop = count / sum(count))
+
+ggplot(climate, aes(as.factor(topic), fill = as.factor(topic))) +
+  geom_bar() +
+  facet_wrap(~sentiment, scales = "free")
+```
+
+```{r, cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+topic_by_sentiment <- climate %>%
+  group_by(sentiment, topic) %>%
+  summarize(count = n()) %>%
+  group_by(sentiment) %>%
+  mutate(prop = count / sum(count))
+```
+
+# Temporal Analysis
+
+```{r, cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+climate$Timestamp <- as.POSIXct(climate$Timestamp, 
+                                format = "%Y-%m-%dT%H:%M:%SZ")
+
+climate$week <- as.Date(cut(climate$Timestamp, breaks = "week"))
+
+tweets_per_week_topic <- climate %>%
+  group_by(week, topic) %>%
+  summarize(num_tweets = n())
+
+ggplot(data = tweets_per_week_topic, aes(x = week, y = num_tweets, 
+                                         color = factor(topic))) +
+  geom_line() +
+  labs(title = "Number of Climate Tweets per Week by Topic", 
+       x = "Week", y = "Number of Tweets", color = "Topic")
+```
+
+```{r, cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+tweets_per_week_sentiment <- climate %>%
+  group_by(week, sentiment) %>%
+  summarize(num_tweets = n())
+
+ggplot(data = tweets_per_week_sentiment, aes(x = week, y = num_tweets, 
+                                             color = factor(sentiment))) +
+  geom_line() +
+  labs(title = "Number of Climate Tweets per Week by Sentiment", 
+       x = "Week", y = "Number of Tweets", color = "Topic")
+```
+
+```{r, cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+tweets_per_week_sentiment_scores <- climate %>%
+  group_by(week) %>%
+  summarize(overall_sentiment_scores = mean(vader))
+
+ggplot(data = tweets_per_week_sentiment_scores,
+       aes(x = week, y = overall_sentiment_scores)) +
+  geom_line() + 
+  labs(title = "Sentiment Scores Variation OVer Time", x = "Week",
+       y = "Overall Sentiment Scores")
+```
+
+THE END
