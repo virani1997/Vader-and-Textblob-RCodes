@@ -51,6 +51,8 @@ library(ggplot2)
 library(tm)
 library(wordcloud)
 library(topicmodels)
+library(ggthemes)
+library(rnaturalearth)
 
 set.seed(12345)
 ```
@@ -1007,6 +1009,48 @@ ggplot(data = tweets_per_week_sentiment_scores,
   geom_line() + 
   labs(title = "Sentiment Scores Variation OVer Time", x = "Week",
        y = "Overall Sentiment Scores")
+```
+
+# Spatial Distribution of Mean Temperature Change from 1970-2021
+
+```{r, cache=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+data <- read_csv("temp.csv")
+
+data <- data %>%
+  dplyr::select(CountryName, latitude, longitude, mean_change) %>%
+  mutate(
+    Country = CountryName,
+    Latitude = latitude,
+    Longitude = longitude,
+    MeanTemperatureChange = mean_change
+  ) %>%
+  dplyr::select(Country, Latitude, Longitude, MeanTemperatureChange)
+
+world_map <- ne_countries(scale = "medium", returnclass = "sf")
+
+merged_data <- left_join(world_map, data, by = c("name" = "Country"))
+
+high_values <- merged_data %>%
+  filter(MeanTemperatureChange > 1.5)
+
+ggplot() +
+  geom_sf(data = merged_data, aes(fill = MeanTemperatureChange), color = "white") +
+  geom_text(data = high_values, aes(x = Longitude, y = Latitude,
+                                    label = name), color = "black", size = 3) +
+  scale_fill_gradient(low = "#fcae91", high = "#cb181d") +
+  coord_sf(xlim = c(-180, 180), ylim = c(-60, 90)) +
+  labs(title = "Mean Temperature Change (1970-2021)", fill = "Temperature Change") +
+  theme_map() +
+  theme(plot.title = element_text(size = 16, face = "bold"),
+        legend.title = element_text(size = 12),
+        legend.text = element_text(size = 10),
+        legend.position = "bottom",
+        legend.key.width = unit(2, "cm"),
+        panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank())
 ```
 
 THE END
